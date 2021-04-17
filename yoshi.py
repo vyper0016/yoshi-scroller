@@ -2,7 +2,9 @@
 # project started on 04/04/2021
 import pygame
 import os
+from random import randrange
 pygame.font.init()
+pygame.init()
 
 WIDTH, HEIGHT = 1200, 700
 win = pygame.display.set_mode((WIDTH, HEIGHT))
@@ -18,15 +20,20 @@ yoshi_jump = False
 ascending = False
 descending = False
 
-jump_speed = 3
+jump_speed = 2
 grav = 3
 jump_interv = 80
 
 yoshi_y_init = round(HEIGHT - HEIGHT*.109943 - yoshi_size[1])
 
-bg_speed = 1
+bg_speed = 2
 
 FPS = 60
+
+spawn_event = pygame.USEREVENT + 1
+spawn_interval = randrange(2000, 4000)
+pygame.time.set_timer(spawn_event, spawn_interval)
+
 
 DARK_BLUE = (26, 50, 145)
 CLEAR_BLUE = (59, 91, 219)
@@ -70,11 +77,39 @@ class Button():
         wind.blit(draw_text, (self.x + self.w//2 - draw_text.get_width()//2, self.y + self.h//2 - draw_text.get_height()//2)) 
 
 
-def draw_stuff(yoshi, bgs: list):
+goomba_size = (40, 40)
+goomba_img1 = pygame.transform.scale(pygame.image.load(resource_path(os.path.join('assets', 'goomba1.png'))), goomba_size)
+goomba_img2 = pygame.transform.scale(pygame.image.load(resource_path(os.path.join('assets', 'goomba2.png'))), goomba_size)
+
+class Goomba:
+    def __init__(self):
+        self.x = WIDTH
+        self.y = 623 - goomba_size[1]
+        self.w = goomba_size[0]
+        self.h = goomba_size[1]
+        self.hitbox = pygame.Rect(self.x, self.y, self.w, self.h)   
+        self.state = 0 
+
+    def draw(self):
+        if self.state < 10:
+            win.blit(goomba_img1, (self.x, self.y))
+        else:
+            win.blit(goomba_img2, (self.x, self.y))
+        
+        self.state += bg_speed
+        if self.state >= 20:
+            self.state = 0
+
+
+
+def draw_stuff(yoshi, bgs: list, obstacles: list):
     win.blit(bg_img, (0, 0))    
 
     for i in bgs:
         win.blit(bg_img, (i.x, i.y))
+
+    for o in obstacles:
+        o.draw()
 
     win.blit(yoshi_img, (yoshi.x, yoshi.y))
 
@@ -112,11 +147,20 @@ def movement_bg(bg1, bg2):
             i.x = WIDTH
         
         i.x -= bg_speed
-        
+
+
+def movement_obstacles(obs: list):
+    for o in obs:
+        o.x -= bg_speed
+        if o.x <= -o.w:
+            obs.remove(o)
+
 
 def main():
 
     yoshi = pygame.Rect(60, yoshi_y_init, yoshi_size[0], yoshi_size[1])
+    obstacles = []
+
     clock = pygame.time.Clock()
 
     bg1 = pygame.Rect(0, 0, WIDTH, HEIGHT)
@@ -134,10 +178,13 @@ def main():
             if event.type == pygame.KEYDOWN:
                 if event.key in [pygame.K_ESCAPE]:
                     pause_menu()
+            if event.type == spawn_event:
+                obstacles.append(Goomba())
 
         movement_yoshi(keys_pressed, yoshi)
+        movement_obstacles(obstacles)
         movement_bg(bg1, bg2)
-        draw_stuff(yoshi, [bg1, bg2])
+        draw_stuff(yoshi, [bg1, bg2], obstacles)
 
 current = -1
 
