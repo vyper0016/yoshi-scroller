@@ -2,8 +2,11 @@
 # project started on 04/04/2021
 import pygame
 import os
-from random import randrange
+import math
+from random import randint
+import datetime
 pygame.font.init()
+pygame.mixer.init()
 pygame.init()
 
 WIDTH, HEIGHT = 1200, 700
@@ -17,26 +20,23 @@ yoshi_size = (yoshi_width, round(yoshi_width*1.25))
 yoshi_speed = 4
 
 yoshi_jump = False
-ascending = False
-descending = False
 
-jump_speed = 2
-grav = 3
-jump_interv = 80
+
+jump_interv = 120
 
 yoshi_y_init = round(HEIGHT - HEIGHT*.109943 - yoshi_size[1])
 
-bg_speed = 2
+bg_speed = 4
 
 FPS = 60
 
 spawn_event = pygame.USEREVENT + 1
-spawn_interval = randrange(2000, 4000)
-pygame.time.set_timer(spawn_event, spawn_interval)
-
+spawn_interval = (2000, 5000)
 
 DARK_BLUE = (26, 50, 145)
 CLEAR_BLUE = (59, 91, 219)
+
+lose_size = (round(100*9.452381), 100)
 
 
 def resource_path(relative_path):
@@ -51,12 +51,24 @@ def resource_path(relative_path):
 
 
 yoshi_img = pygame.transform.scale(pygame.image.load(resource_path(os.path.join('assets', 'yoshi.png'))), yoshi_size)
+yoshi_jump_img = pygame.transform.scale(pygame.image.load(resource_path(os.path.join('assets', 'yoshi_jump.png'))), yoshi_size)
+yoshi_lose_img = pygame.transform.scale(pygame.image.load(resource_path(os.path.join('assets', 'yoshi_lose.png'))), yoshi_size)
+
+
 
 bg_img = pygame.transform.scale(pygame.image.load(resource_path(os.path.join('assets', 'bg.jpg'))), (WIDTH, HEIGHT))
+
+lose_img = pygame.transform.scale(pygame.image.load(resource_path(os.path.join('assets', 'game_over.png'))), lose_size)
+
 
 main_menu_img = pygame.transform.scale(pygame.image.load(resource_path(os.path.join('assets', 'main_menu.jpg'))), (WIDTH, HEIGHT))
 
 pause_menu_img = pygame.transform.scale(pygame.image.load(resource_path(os.path.join('assets', 'pause_menu.png'))), (WIDTH, HEIGHT))
+
+jump_sound = pygame.mixer.Sound(resource_path(os.path.join('assets', 'jump.wav')))
+game_over_sound = pygame.mixer.Sound(resource_path(os.path.join('assets', 'game_over.wav')))
+
+lost = False
 
 pause_font = pygame.font.SysFont('impact', 40)
 
@@ -77,14 +89,14 @@ class Button():
         wind.blit(draw_text, (self.x + self.w//2 - draw_text.get_width()//2, self.y + self.h//2 - draw_text.get_height()//2)) 
 
 
-goomba_size = (40, 40)
+goomba_size = (60, 60)
 goomba_img1 = pygame.transform.scale(pygame.image.load(resource_path(os.path.join('assets', 'goomba1.png'))), goomba_size)
 goomba_img2 = pygame.transform.scale(pygame.image.load(resource_path(os.path.join('assets', 'goomba2.png'))), goomba_size)
 
 class Goomba:
     def __init__(self):
         self.x = WIDTH
-        self.y = 623 - goomba_size[1]
+        self.y = HEIGHT - HEIGHT*.109943 - goomba_size[1]
         self.w = goomba_size[0]
         self.h = goomba_size[1]
         self.hitbox = pygame.Rect(self.x, self.y, self.w, self.h)   
@@ -99,10 +111,14 @@ class Goomba:
         self.state += bg_speed
         if self.state >= 20:
             self.state = 0
-
+    
+    def move(self):
+        self.x -= bg_speed
+        self.hitbox = pygame.Rect(self.x, self.y, self.w, self.h) 
 
 
 def draw_stuff(yoshi, bgs: list, obstacles: list):
+    global yoshi_jump, lost
     win.blit(bg_img, (0, 0))    
 
     for i in bgs:
@@ -110,34 +126,37 @@ def draw_stuff(yoshi, bgs: list, obstacles: list):
 
     for o in obstacles:
         o.draw()
-
-    win.blit(yoshi_img, (yoshi.x, yoshi.y))
+    if lost:
+        win.blit(yoshi_lose_img, (yoshi.x, yoshi.y))
+    elif yoshi_jump:
+        win.blit(yoshi_jump_img, (yoshi.x, yoshi.y))
+    else:
+        win.blit(yoshi_img, (yoshi.x, yoshi.y))
 
     pygame.display.update()
 
 
+py = yoshi_y_init
+descending = False
+jump_speed = round(math.sqrt((2*jump_interv)/bg_speed))
 def movement_yoshi(keys, yoshi):
-    global yoshi_jump, ascending, descending
+    global yoshi_jump, py, jump_speed
     if keys[pygame.K_SPACE] and not yoshi_jump:
         yoshi_jump = True
+        jump_sound.play()
     
 
     if yoshi_jump:
-        if not descending:
-            ascending = True
-            yoshi.y -= jump_speed
-        
-        if ascending and yoshi.y < yoshi_y_init - jump_interv:
-            ascending = False
-            descending = True
+        yoshi.y -= jump_speed
+        jump_speed -= 0.2
 
-        if descending:
-            yoshi.y += grav
-
-        if descending and yoshi_y_init - jump_speed < yoshi.y < yoshi_y_init  + grav:
-            descending = False
-            yoshi_jump = False
+        if py < yoshi.y and yoshi_y_init - 10 <= yoshi.y <= yoshi_y_init + 10:
             yoshi.y = yoshi_y_init
+            yoshi_jump = False
+            jump_speed = round(math.sqrt((2*jump_interv)/bg_speed))
+
+        py = yoshi.y
+        
 
 
 def movement_bg(bg1, bg2):
@@ -151,13 +170,44 @@ def movement_bg(bg1, bg2):
 
 def movement_obstacles(obs: list):
     for o in obs:
-        o.x -= bg_speed
+        o.move()
         if o.x <= -o.w:
             obs.remove(o)
 
 
-def main():
+def check_lose(yoshi: pygame.Rect, obs: list, bgs):
+    global lost
 
+    for o in obs:
+        if yoshi.colliderect(o.hitbox):
+            game_over_sound.play()
+            lost = True
+
+            endTime = datetime.datetime.now() + datetime.timedelta(seconds=3)
+
+            while datetime.datetime.now() < endTime:
+                clock = pygame.time.Clock()
+                clock.tick(FPS)
+
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        pygame.quit()
+                        return
+                
+                yoshi.y += 2
+                draw_stuff(yoshi, bgs, obs)
+
+            win.blit(lose_img, (WIDTH//2 - lose_size[0]//2, HEIGHT//2 - lose_size[1]//2))
+            pygame.display.update()
+            pygame.time.wait(5000)
+            main_menu()
+            return False
+        return True
+
+def main():
+    global time_passed, lost
+    lost = False
+    
     yoshi = pygame.Rect(60, yoshi_y_init, yoshi_size[0], yoshi_size[1])
     obstacles = []
 
@@ -166,10 +216,16 @@ def main():
     bg1 = pygame.Rect(0, 0, WIDTH, HEIGHT)
     bg2 = pygame.Rect(WIDTH, 0, WIDTH, HEIGHT)
 
-    while True:
+    spawner = False
+    run = True
+    while run:
         clock.tick(FPS)
 
         keys_pressed = pygame.key.get_pressed()
+
+        if not spawner:            
+            pygame.time.set_timer(spawn_event, randint(spawn_interval[0], spawn_interval[1]))
+            spawner = True
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -180,11 +236,13 @@ def main():
                     pause_menu()
             if event.type == spawn_event:
                 obstacles.append(Goomba())
+                spawner = False
 
         movement_yoshi(keys_pressed, yoshi)
         movement_obstacles(obstacles)
         movement_bg(bg1, bg2)
         draw_stuff(yoshi, [bg1, bg2], obstacles)
+        check_lose(yoshi, obstacles, [bg1, bg2])
 
 current = -1
 
